@@ -2,47 +2,46 @@
 #include <mutex>
 #include <optional>
 #include <thread>
+#include <variant>
 #include <raylib/raylib.h>
 
-class Event
-{
-public:
-	virtual ~Event() = default;
 
-};
-
-class KeyEvent : public Event
+struct KeyEvent
 {
-public:
 	int key;
 	int state;
-
-public:
-	KeyEvent(int key, int state)
-		: key{ key }, state{ state }
-	{
-		
-	}
-
 };
 
+using Event = std::variant < KeyEvent >;
+
 std::atomic_bool windowOpen = true;
-std::atomic<std::optional<Event*>> event;
+std::optional<Event> event;
 std::mutex mtx;
 
 void EventThread()
 {
 	while (windowOpen.load())
 	{
-		std::optional evt = event.load();
+		std::optional<Event> localEvent = std::nullopt;
 
-		if (evt.has_value())
 		{
-			KeyEvent* keyEvent = dynamic_cast<KeyEvent*>(evt.value());
-
-			if (keyEvent->key == KEY_ESCAPE && keyEvent->state == 1)
+			std::scoped_lock lock(mtx);
+			if (event.has_value())
 			{
-				windowOpen.store(false);
+				localEvent = event;
+				event.reset(); // Safely clear it for the next frame
+			}
+		}
+
+		if (localEvent.has_value())
+		{
+			if (std::holds_alternative<KeyEvent>(*localEvent))
+			{
+				KeyEvent keyEvent = std::get<KeyEvent>(*localEvent);
+				if (keyEvent.key == KEY_ESCAPE && keyEvent.state == 1)
+				{
+					windowOpen.store(false);
+				}
 			}
 		}
 	}
@@ -64,7 +63,7 @@ void RenderThread()
 			std::scoped_lock lock(mtx);
 			KeyEvent evt = { key, 1 };
 
-			event.store(&evt);
+			event = evt;
 		}
 
 		EndDrawing();
@@ -74,7 +73,10 @@ void RenderThread()
 			windowOpen.store(false);
 		}
 
-		event.load().reset();
+		{
+			std::scoped_lock lock(mtx);
+			event.reset();
+		}
 	}
 
 	CloseWindow();
