@@ -1,0 +1,5 @@
+[Ii]ntermediate/
+[Bb]uilds/
+[Dd]ependencies/lib/
+.vs/
+*.user
